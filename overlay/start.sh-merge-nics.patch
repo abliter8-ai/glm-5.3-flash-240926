@@ -1,0 +1,11 @@
+--- a/start.sh
++++ b/start.sh
+@@ -1979,7 +1979,7 @@
+         -e NCCL_NET_PLUGIN=none
+         -e NCCL_NVLS_ENABLE=0
+         -e NCCL_CUMEM_ENABLE=0
+-        -e NCCL_IB_MERGE_NICS=0
++        -e "NCCL_IB_MERGE_NICS=${NCCL_IB_MERGE_NICS:-0}"
+         -e "NCCL_CROSS_NIC=$NCCL_CROSS_NIC"
+         -e NCCL_IGNORE_CPU_AFFINITY=1
+         -e "NCCL_DEBUG=$NCCL_DEBUG"

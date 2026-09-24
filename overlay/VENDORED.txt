@@ -1,0 +1,23 @@
+vendored: MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks @ 0f49cfd (2026-09-24, IP-327; previous f906ee99 2026-09-12 IP-310, eb0469fb 2026-09-02 IP-289, 493cb88f 2026-08-31 IP-285)
+          upstream main at vendoring time: 0f49cfdbaa131286eb592cd6ebfa048f3aa85c4e "Merge pull request #263 from D3-3109/fix/selfcheck-dflash2-compact-asserts" (2026-09-23 20:28 -04:00)
+          240 commits ahead of f906ee99: 153 files added, 36 modified, none deleted. TP=2 opt-ins GLM53_EXL3_MOE_FAST (thin-decode kernels),
+          GLM53_DRAFT_KV_COMPACT, GLM53_KDA_BF16_LARGE_M, spinwait profile; Mamba align state-free + chunk alignment; vision OOM caps;
+          DEFAULT_MAX_NEW_TOKENS; tool_choice none; fair prefill v5 (default; we pin 1024); InstantTensor loader; cooperative MoE; TP3/TP4 launchers.
+          This tree = upstream 0f49cfd + RUIN-DELTAS §1, byte-identical (257 files, path + sha256, 2026-09-24) to the live tree
+          <head-host>:~/glm53-exl3-overlay-0f49cfd apart from its .env, the transplant set (§5) and the §3 harness constants.
+image:    glm53-exl3-local:0f49cfd = sha256:bd4d789050da, LABEL glm53.recipe.stamp=e7b9e9a866c217eb (built <head-host> 2026-09-24 06:15Z,
+          on both ranks) — SERVING since 2026-09-24 09:50Z (recipe v5, PRODUCTION per DW 2026-09-24). ROLLBACK image glm53-exl3-local:f906ee99 = sha256:84213c37e0ac (v3).
+--- previous vendoring (IP-310) ---
+vendored: MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks @ f906ee99 (2026-09-12, IP-310; previous eb0469fb 2026-09-02 IP-289, 493cb88f 2026-08-31 IP-285)
+          upstream main at vendoring time: f906ee99 "Merge pull request #169 from mmizutani/launcher-adaptive-k-defaults" (2026-09-12 14:12 UTC)
+          89 commits / 58 files ahead of eb0469fb: E3 grouped fat-expert MoE (exl3_fat_moe.cu), adaptive-k, dense FP8,
+          APC per-group retention, template PR #150/#156, LONG_PREFILL_TOKEN_THRESHOLD, DFLASH_REVISION pin, GID multi-HCA.
+image:    glm53-exl3-local:f906ee99 = sha256:84213c37e0ac, LABEL glm53.recipe.stamp=bdd5c0d886dc7cc9 (built <head-host> 2026-09-12 19:25-19:28Z,
+          on both ranks) — SERVING since 2026-09-13 00:49Z (recipe v3). live tree on <head-host>: ~/glm53-exl3-overlay-f906ee99
+          (IP-289) glm53-exl3-local:eb0469fb, recipe stamp 8b866185 — v2 rollback (tree ~/glm53-exl3-overlay, restored pre-IP310); ROLLBACK image
+          ghcr.io/miaai-lab/glm-5.3-flash-2x-dgx-sparks@sha256:9bb1557a4234fce63d59599e44d10747eabd742beb337eebf9e7070be8a0fd58 (v1)
+weights:  Mia-AiLab/GLM-5.3-Flash-EXL3-TR3-4bpw @ 25a44fdbf16862a46b7cc9921142c6c81350af2f (unchanged; byte-identical to mirror HEAD 024db9f7)
+drafter:  incoai/GLM-5.3-Flash-DFlash2 — served revision 7d74cdd8 (sha256 8931dc52…) on both ranks as of 2026-09-12;
+          upstream pins dc77ff1c (b33c0347…); bf582e4e (b038e1d9…) newest. IP-310 L3 decides the pin.
+template: files/chat_template.jinja @ f906ee99 sha256 7a5a0dda1331a7c40d930961cc1cb3b57c3b52625250c13372fe006ba2e9dfdb
+          (Reasoning-Effort line gated on thinking again + Z.ai 2026-09-04 corrections) — applied to the live tree at IP-310 L0.

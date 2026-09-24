@@ -1,0 +1,142 @@
+# RESULT — IP-327: MiaAI upstream 0f49cfd and its TP=2 opt-ins on the EXL3 lane, measured against a same-day
+# v3 control. One row per arm; every arm runs the same IP-310 standard battery (spark side: structured decode c1/c2,
+# c12, EngineCore CPU, repeat-prefix claim probe, needles, ablit probe, cold prefill ladder, 3x250k host-floor stress;
+# <client-host> side: acceptance by workload, thinking-off battery, long-prefill fairness, staggered admission,
+# LiveCodeBench trio; then the vision memory ladder). Lane on :8001 with :8000 closed (gateway fallbacks served the
+# GLM routes), unique-salted prompts, warm-up allowed to finish, engine idle before every single-stream cell.
+# n=1 per cell unless stated. Pass rules: IP-327 §4.
+schema_version: "1.0"
+result_id: glm53-flash-exl3-tr3-4bpw__dual-gb10-tp2__vllm-miaai-overlay__v5__20260924__ip327-upstream-optins
+
+recipe_ref:
+  recipe_id: glm53-flash-exl3-tr3-4bpw__dual-gb10-tp2__vllm-miaai-overlay__v5
+  deviations:
+    - field: launch.env
+      value: "per-arm knob set — see raw_metrics.arms[*].knobs"
+      reason: "A is the v3 control (image f906ee99); B is the 0f49cfd candidate with KDA off at the v3 pin; C' adds KDA BF16 large-M and the 8 GiB pin that funds it."
+
+resolved_config:
+  model_id: glm-5.3-flash-uncensored
+  engine: vllm
+  engine_version: "A: glm53-exl3-local:f906ee99 (sha256:84213c37e0ac, stamp bdd5c0d8). B/C': glm53-exl3-local:0f49cfd (sha256:bd4d789050da, stamp e7b9e9a866c217eb), built on <head-host> 2026-09-24 06:15Z, same vLLM base 905c0293 and ExLlamaV3 c5d9c657"
+  quant: "EXL3/TR3 uniform-K4 4bpw routed experts; dense+KDA projections FP8 weight-only via Marlin (C': KDA in_proj also kept as a BF16 copy for M > 512)"
+  context_length: 640000
+  host: "<head-host> head + <worker-host> headless worker, TP2, dual-rail CX-7; ABLIT=1 dealign transplant L15-45; DFlash2 k=7 @ 7d74cdd8; adaptive-k ema 2,4,7 margin 2.0; seqs 12; MNBT 7168; mixed prefill 1024; long-prefill threshold 1024; overlay chat template sha256 7a5a0dda (identical across arms)"
+
+run:
+  timestamp: "2026-09-24T06:23:21Z"
+  operator: claude-opus-5-5
+  harness:
+    tool: "IP-327 battery = IP-310 standard: ~/ip327/spark_battery.sh (bench_decode structured c1/c2 x5, conc_probe c12 x3, EngineCore CPU from /proc, repeat_prefix_probe, ip286_needle, ip286_ablit, prefill_ladder, longprefill_stress + MemAvailable sampling on both ranks) + arm_rest.sh on <client-host> (accept_probe 7 classes, l0_thinkoff_battery, warmpoll_probe, stagger_probe, lcb_trio thinking off 16k) + vision_check.sh (1, 8x3, then +4/+8 per rung with a projection stop) + kl_probe (C')"
+    version: "livecodebench 1.0.0 (v6); MiaAI tests/bench_decode.py @ 0f49cfd with the RUIN-DELTA §3 constants (:8001) for every arm"
+    source: standard
+    mode: quality
+    command: "per arm: ~/ip327/boot_arm.sh <arm> <tree> 8001 <kda> [kv_bytes] (drain, ~/safe-takedown.sh --peer <worker-host>, SKIP_* start.sh, exports ABLIT=1 ABLIT_METHOD=transplant); then the battery scripts"
+    raw_output_path: "~/.local/share/bench/ip327-20260924/ (<client-host>) and ~/ip327/raw/ (<head-host>)"
+  thermal_state: warm
+  warmup: { performed: true, requests: 24, discarded_first_n: 0 }
+  repetitions: 1
+  machine_otherwise_idle: true
+  throttling_observed: false
+
+raw_metrics:
+  pass_rules: {memory: "pool >= 640,000 tokens; worst-case MemAvailable >= 3 GiB on both ranks under 3x250k and under the largest allowed image batch", speed: "no workload class below -3% of A; c12 within -3%", correctness: "needles exact; ablit probe complies; thinking-off stories >= 3/4, JSON valid, code parses, 0 reasoning chars; warm session <= 30 s during a long prefill; warm-up complete; transplant fingerprint present", claims: "reported as measured against A"}
+  gateway_window: "12 GLM routes fell back (zAI; NoThink -> Qwen3.8 Extract) while :8000 was closed; lane declared on :8001 for the window (cluster-services.yaml + fleet-probe REGISTRY, deployed to <console-host>), parity gate PASS throughout"
+  arms:
+    - arm: A
+      role: "same-day control = production v3"
+      image: "glm53-exl3-local:f906ee99"
+      knobs: {tree: "~/glm53-exl3-overlay-f906ee99", EXTRA_ARGS: "--kv-cache-memory-bytes 14495514624 (13.5 GiB) + 20-size capture list", LIMIT_MM: '{"image":100,"video":1}', GLM53_SPINWAIT_MS: stock}
+      boot_ready: "06:33:32Z (9 min 39 s after launch); warm-up 20/20"
+      pool: {tokens: 721183, concurrency_x: 1.13, postboot_mem_gib: {head: 5.46, worker: 9.07}}
+      structured_c1: {median: 73.51, min: 73.14, max: 75.51, n: 5, ttft_s: 0.32, accept: 0.956, accepted_per_step: 6.69, ms_per_step: 104.39}
+      structured_c2: {per_stream: 64.23, aggregate: 120.21, n: 5}
+      c12_tps: {median: 332.4, runs: [332.4, 323.3, 332.7]}
+      enginecore_cpu: "99.7% of one core"
+      repeat_prefix_28k: {cold_ttft_s: 27.15, repeat_ttft_s: 3.93, cached_tokens: 25088, note: "7 of the 8 reachable 3,584-token pages"}
+      prefill_ladder_tok_s: {"12,056": 968, "159,314": 1035, "495,873": 991}
+      longprefill_stress: {requests: 11, http_200: 11, needle_exact: 11, phase_A_3x250k_tok_s_each: "413-420", min_mem_gib: {head: 4.07, worker: 7.20}}
+      acceptance_by_workload: {code_think_high_T1: [45.5, 5.01], prose_think_high_T1: [23.4, 2.11], prose_nothink_T1: [22.7, 2.01], prose_nothink_T06: [23.5, 2.14], json_nothink_T1: [54.2, 7.93], toolcall_15tok: [10.8, 3.75], format: "[tok/s, tokens per step]"}
+      thinking_off_battery: {stories_usable: "4/4", json_valid: true, json_raw_no_fence: true, code_syntax_ok: true, code_fences: 1, reasoning_chars: 0}
+      long_prefill_fairness: {b_prompt_tokens: 187712, b_ttft_s: 195.72, b_prefill_tok_s: 959.1, a_poll_s_before: [2.6, 2.58, 2.57], a_poll_max_during_s: 7.62, preemptions: 0}
+      stagger: {b_prompt_tokens: 21774, ttft_b_s: 22.97, a_tps_before_during_after: [33.2, 2.6, 24.0]}
+      lcb_thinking_off_16k: {passed: "0/3", budget_truncated: "3/3"}
+      vision: {images_1: "pass", images_8x3: {min_head_mib: 4180, min_worker_mib: 7035, drop_head_mib: 2419}, note: "v3 has no MM caps: 2691 tokens per 1080p image, 4 GiB processor cache"}
+      verdict: "control"
+    - arm: B
+      role: "0f49cfd candidate, KDA off, v3 pin"
+      image: "glm53-exl3-local:0f49cfd"
+      knobs: {tree: "~/glm53-exl3-overlay-0f49cfd", GLM53_EXL3_MOE_FAST: 1, GLM53_DRAFT_KV_COMPACT: 1, GLM53_SPINWAIT_MS: 16, GLM53_KDA_BF16_LARGE_M: 0, EXTRA_ARGS: "--kv-cache-memory-bytes 14495514624 (13.5 GiB)", LIMIT_MM: '{"image":48,"video":1}', MM_IMAGE_TOKENS: 2048, MM_PROCESSOR_CACHE_GB: 1, DEFAULT_MAX_NEW_TOKENS: 65536, LOAD_FORMAT: "auto"}
+      boot_ready: "07:55Z (~9 min); warm-up 24/24 in 64 s; knobs verified in BOTH containers"
+      pool: {tokens: 1421333, concurrency_x: 2.22, block_ids_per_640k_request: 240, usable_blocks: 532, postboot_mem_gib: {head: 6.93, worker: 9.00}, note: "drafter group = 2,048-token sliding window in 896-token blocks (20 ids per request); MemFree head 1.97 vs A 2.27 GiB, so the higher MemAvailable is page cache"}
+      structured_c1: {median: 79.14, min: 78.97, max: 80.78, n: 5, ttft_s: 0.30, accept: 0.956, accepted_per_step: 6.69, ms_per_step: 96.95, delta_vs_A: "+7.7%"}
+      structured_c2: {per_stream: 70.03, aggregate: 132.66, n: 5, delta_vs_A: "+10.4% aggregate"}
+      c12_tps: {median: 357.0, runs: [357.9, 354.6, 357.0], delta_vs_A: "+7.4%"}
+      enginecore_cpu: "17.7% of one core (-82%)"
+      repeat_prefix_28k: {cold_ttft_s: 26.50, repeat_ttft_s: 0.43, cached_tokens: 28672, delta_vs_A: "repeat -89%; all 8 pages reused"}
+      prefill_ladder_tok_s: {"12,283": 1027, "153,634": 1067, "487,273": 1015, delta_vs_A: "+6.1% / +3.1% / +2.4%"}
+      needles: {"8k": EXACT, "128k@10%": EXACT, prefill_tok_s: {"8k": 985, "128k": 1168}}
+      ablit_probe: {first: "7/8 (regex hit on a redirect)", rerun_same_seed_T0: "8/8", transplant_fingerprint: "30 layers identical to A (donor, shape, rel_l2, mean_rel)"}
+      longprefill_stress: {requests: 11, http_200: 11, needle_exact: 11, phase_A_3x250k_tok_s_each: "420-424", min_mem_gib: {head: 4.66, worker: 6.15}}
+      acceptance_by_workload: {code_think_high_T1: [49.5, 5.04], prose_think_high_T1: [25.0, 2.11], prose_nothink_T1: [24.1, 2.03], prose_nothink_T06: [25.1, 2.13], json_nothink_T1: [53.5, 7.07], toolcall_15tok: [14.9, 3.75], delta_vs_A: "code +8.8%, prose +6.2..+6.8%, JSON -1.3% (acceptance 0.867 vs 0.99 on that sample)"}
+      thinking_off_battery: {stories_usable: "3/4 (story 3 hit the cap in the known echo loop, repeated-4gram 0.539)", json_valid: true, json_raw_no_fence: false, code_syntax_ok: true, code_fences: 2, reasoning_chars: 0}
+      long_prefill_fairness: {b_prompt_tokens: 187712, b_ttft_s: 195.44, b_prefill_tok_s: 960.5, a_poll_s_before: [3.35, 3.32, 3.32], a_poll_max_during_s: 8.47, note: "warm session 64,145 tokens (A 62,996): same 17 cached pages, longer uncached tail"}
+      stagger: {b_prompt_tokens: 21774, ttft_b_s: 21.89, a_tps_before_during_after: [29.2, 2.6, 25.9]}
+      lcb_thinking_off_16k: {passed: "2/3 (abc390_f in 8,626 tokens; abc397_e at the cap)", budget_truncated: "2/3"}
+      vision: {images_1: "pass", images_8x3: {min_head_mib: 3373, min_worker_mib: 6517, drop_head_mib: 2268, per_request_transient_mib: [1428, 1691]}, images_12: "not run — projected 1,018 MiB on the head", safe_cap: 8}
+      verdict: "PASS every gate. Vision cap 8 at this pin."
+    - arm: "C'"
+      role: "B + KDA BF16 large-M, funded by an 8 GiB KV pin"
+      image: "glm53-exl3-local:0f49cfd"
+      knobs: {GLM53_KDA_BF16_LARGE_M: 1, EXTRA_ARGS: "--kv-cache-memory-bytes 8589934592 (8 GiB) exported as a caller override", others: "= B"}
+      boot_ready: "09:21:42Z; warm-up 24/24 in 59 s; KDA copy logged on both ranks (+98.2 MiB per KDA layer x34)"
+      pool: {tokens: 842666, concurrency_x: 1.32, usable_blocks: 315, model_loading_gib: 82.95, postboot_mem_gib: {head: 10.49, worker: 10.92}}
+      kl_gate: {method: "IP-310 kl_probe.py: 4 fixed texts, prompt logprobs top-20, T=0, 2,627 positions", vs_bf16_dense_L1b: {mean_kl_nats: 0.0062, argmax: 0.984}, v3_L4_vs_bf16: {mean_kl_nats: 0.0061, argmax: 0.984}, vs_v3_L4: {mean_kl_nats: 0.0041, argmax: 0.988, reason_passage: 0.0144}}
+      structured_c1: {median: 79.39, min: 79.28, max: 79.52, n: 5, accept: 0.956}
+      structured_c2: {aggregate: 132.01}
+      c12_tps: {median: 246.7, runs: [246.7, 247.4, 241.7], delta_vs_B: "-31%", cause: "engine stats: Running 9 / Waiting 3 at KV usage 100%; each running request holds 35 blocks (1 request = 11.1% of 315) whatever its length"}
+      enginecore_cpu: "17.7% of one core"
+      repeat_prefix_28k: {cold_ttft_s: 24.26, repeat_ttft_s: 0.42, cached_tokens: 28672, delta_vs_B: "cold -8.5%"}
+      needles: {"8k": EXACT, "128k@10%": EXACT, prefill_tok_s: {"8k": 1081, "128k": 1287}}
+      ablit_probe: {first: "7/8 (same borderline redirect as B's first draw)"}
+      prefill_ladder_tok_s: {"12,283": 1117, "159,314": 1169, "470,074": 1115, delta_vs_B: "+8.8% / +9.6% / +9.9% (TTFT -8..-9%; upstream claimed -11.4 / -12.3 / -14.1%)"}
+      not_run: "3x250k stress, client-side battery, vision ladder — stopped after the prefill ladder once c12 failed its gate"
+      verdict: "REJECTED on c12 (-31%). KDA's prefill gain is real and numerics-neutral, but a pin that keeps 12 sequences (>= ~10.7 GiB) cannot also fund +3.29 GiB/rank and keep the head above the vision floor."
+    - arm: FINAL
+      role: "= B with LIMIT_MM image 8, on :8000 (production traffic returns through the gateway)"
+      image: "glm53-exl3-local:0f49cfd"
+      boot: {begin: "09:38:57Z", launch: "09:39:25Z", ready: "09:50:10Z", warmup: "24/24 in 63 s"}
+      verify: {knobs_both_containers: "as B; LIMIT_MM {image 8, video 1}", image_both_ranks: "bd4d789050da", usable_blocks: 532, concurrency_x: 2.22, transplant_lines: 32, host_floor_mib: {head: 7272, worker: 9366}, greedy_content_ok: true}
+      refusal_probe: "8/8 complied"
+      gateway_parity: {method: "same messages, T=0, direct :8000 with the tier's kwargs vs the <gateway-host> :4000 route", NoThink: "prompt 23/23, completion 50/50, stop, reasoning 0/0", Low: "prompt 29/29, completion 61/61, stop", High: "prompt 53/53, completion 48/48, reasoning 63/63 chars, answer 16:10 both (correct)", verdict: "PARITY OK"}
+      image_token_readability: {method: "1920x1080 page, 24 random 6-char codes at 11/12/13/14/16/20 px (Arial), 3 seeds, per-request mm_processor_kwargs max_image_tokens (prompt tokens 2083 / 1051 / 799 = honoured), thinking off, T=0", exact_2048: {"11px": "10/12", "12px": "10/12", "13px": "12/12", "14px": "12/12", "16px": "12/12", "20px": "12/12"}, exact_1024: {"11px": "2/12", "12px": "3/12", "13px": "4/12", "14px": "8/12", "16px": "12/12", "20px": "12/12"}, exact_768: {"11px": "0/12", "12px": "1/12", "13px": "1/12", "14px": "3/12", "16px": "7/12", "20px": "9/12"}, reading: "2048 reads web-sized text; 1024 loses most text under 14 px"}
+      console_parity: "declaration back on :8000 / recipe v5, deployed to <console-host>, console-parity-gate exit 0"
+
+performance:
+  # headline cells = the final configuration (arm B's measurements; FINAL differs only in LIMIT_MM)
+  decode_throughput_tps:
+    per_stream: {value: 79.14, min: 78.97, max: 80.78, n: 5, unit: tok/s, note: "structured count prompt, thinking off; same-day v3 73.51 (+7.7%). By class: code think-high 49.5, prose 24.1-25.1, JSON 53.5"}
+    aggregate: {value: 357.0, n: 3, unit: tok/s, note: "c12; v3 332.4"}
+  prefill_throughput_tps: {value: 1067, min: 1015, max: 1067, n: 3, unit: tok/s, note: "unique-salt cold prefill at 12k / 154k / 487k: 1027 / 1067 / 1015 (v3 968 / 1035 / 991)"}
+  scaling:
+    by_context_depth:
+      - {depth_tokens: 12283, prefill_tps: 1027}
+      - {depth_tokens: 153634, prefill_tps: 1067}
+      - {depth_tokens: 487273, prefill_tps: 1015}
+  capacity:
+    kv_cache_tokens_available: 1421333
+    max_conversations_at_full_context: 2.22
+    max_practical_concurrency: 12
+    concurrency_limit_reason: configured-limit
+    capacity_notes: "13.5 GiB pin = 533 blocks of 27.2 MB; 240 block ids per 640k request, >= 35 per running request of any length -> 12 sessions need ~420 blocks. Worst-case host floor: 3x250k head 4.66 / worker 6.15 GiB; 8 images head 3.29 GiB."
+  latency:
+    repeat_prefix_28k_ttft_s: {value: 0.43, note: "v3 3.93 s; 28,672 of ~28,745 tokens reused"}
+    cold_28k_ttft_s: 26.5
+    warm_session_poll_during_188k_prefill_max_s: 8.47
+    staggered_21k_newcomer_ttft_s: 21.89
+
+quality:
+  correctness_checks: "needles exact (8k, 128k, 11/11 in the 3x250k stress); refusal probe 8/8; thinking-off stories 3/4, JSON valid, code parses, 0 reasoning chars; LCB thinking-off 16k 2/3 (v3 0/3); gateway parity OK on NoThink/Low/High"
+  numerics: "KDA BF16 (not adopted) KL vs BF16 dense 0.0062 nats, argmax 0.984 = v3's 0.0061 / 0.984; the adopted path keeps v3's dense FP8 numerics"
+
+verdict: "Adopt B with LIMIT_MM image 8 (recipe v5, draft). KDA BF16 large-M not adopted: real +9-10% prefill but its 3.29 GiB/rank cannot be funded at 12 sequences with vision."

@@ -1,0 +1,3 @@
+# RUIN-DELTA §3 — tests/bench_decode.py constants on the LIVE tree only (upstream ships :8888 / GLM-5.3-Flash-EXL3)
+BASE = "http://127.0.0.1:8000"
+MODEL = "glm-5.3-flash-uncensored"

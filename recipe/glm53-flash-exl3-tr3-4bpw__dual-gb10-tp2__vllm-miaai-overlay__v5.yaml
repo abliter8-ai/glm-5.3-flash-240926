@@ -1,0 +1,238 @@
+# =============================================================================
+# RECIPE v5 — GLM-5.3-Flash EXL3/TR3 4bpw on two GB10 nodes, TP=2, MiaAI overlay RE-VENDORED at
+# 0f49cfd (IP-327, 2026-09-24) and BUILT LOCALLY. Differences from v3: upstream's TP=2 opt-ins
+# GLM53_EXL3_MOE_FAST (thin-decode routed-expert kernels), GLM53_DRAFT_KV_COMPACT (drafter pages
+# aligned to the Mamba block) and GLM53_SPINWAIT_MS=16; the always-on Mamba align fixes; upstream's
+# vision OOM caps (48 images x 2048 tokens, 1 GiB processor cache); DEFAULT_MAX_NEW_TOKENS 65536 for
+# omitted limits; tool_choice "none" enforced at decode. GLM53_KDA_BF16_LARGE_M stays OFF (measured: +9-10%
+# prefill, but its 3.29 GiB/rank does not fit 12 sequences + vision on the head). Image cap 8 per request (measured).
+# Every number is MEASURED in the IP-327 results record (results_refs) against a same-day v3 control.
+# v4 = IP-314's rejected candidate; v3 stays as rollback.
+# =============================================================================
+
+schema_version: "1.0"
+recipe_id: glm53-flash-exl3-tr3-4bpw__dual-gb10-tp2__vllm-miaai-overlay__v5
+
+meta:
+  name: "GLM-5.3-Flash EXL3/TR3 4bpw on two RDMA-linked GB10 nodes — MiaAI overlay 0f49cfd (local build), TP=2, thin-decode MoE kernels, compact DFlash2 pages, spin-wait 16 ms, DFlash2 k=7 with adaptive verification (margin 2.0), pinned 13.5 GiB fp8 KV, FP8 dense projections, runtime abliteration, vision OOM caps"
+  created: "2026-09-24"
+  author: "fleet agent (IP-327 upstream opt-in adoption, David-directed; v3 by IP-310)"
+  status: production   # promoted by David 2026-09-24 ("That's great. I'll sign off on that.")
+  intended_use:
+    - reasoning-heavy
+    - tool-calling-agent
+    - long-context-retrieval
+  one_line_tradeoff: >-
+    MEASURED 2026-09-24 against a same-day v3 control (IP-327, results_refs): decode +7.7% single-stream
+    structured (79.1 vs 73.5 tok/s, same acceptance), +8.8% code, +6-7% prose, +7.4% at c12 (357 vs 332);
+    cold prefill +2-6%; a 28.7k-token repeat prefix answers in 0.43 s instead of 3.9 s (all 8 pages reused);
+    EngineCore CPU 18% of a core instead of 100%; the same 13.5 GiB pin holds 1.42M tokens (2.22x at 640k)
+    instead of 721k; worst-case head floor under 3x250k 4.66 GiB (v3 4.07). Costs: at most 8 images per
+    request (v3 allowed 100 with no token cap; 8 x 2048-token images leave the head at 3.29 GiB) and
+    omitted max_tokens now defaults to 65,536. Correctness unchanged: needles exact, 11/11 stress needles,
+    ablit 8/8, thinking-off stories 3/4, LCB thinking-off 2/3 (v3 0/3).
+  source:
+    url: "https://huggingface.co/Mia-AiLab/GLM-5.3-Flash-EXL3-TR3-4bpw"
+    author: "quant by brandonmusic (EXL3/TR3); serving recipe by MiaAI-Lab; base zai-org/GLM-5.3-Flash"
+    retrieved: "2026-09-01"
+    modifications: >-
+      None to the checkpoint (revision 25a44fdb, unchanged since v1; artifacts re-verified 2026-09-24).
+      Engine: MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks vendored at 0f49cfd (2026-09-23; was f906ee99)
+      in models/runtimes/dual-spark-cluster/glm53-flash-exl3/miaai-overlay/ with RUIN-DELTAS §1 (dual-rail
+      NCCL env) and §3 (bench harness port/name on the live tree). Chat template = the overlay file,
+      byte-identical to v3's (sha256 7a5a0dda…). Transplant set hardlinked into the live tree (RUIN-DELTAS §5).
+  tags: [dgx-spark, gb10, sm121, exl3, trellis, tr3, 4bpw, moe, glm5, glm53, flash, tensor-parallel, rdma, dflash2, speculative, adaptive-k, e3-grouped-moe, thin-decode-moe, draft-kv-compact, fp8-kv, kv-pinned, abliteration-toggle, vision-caps, local-build, evaluation]
+
+model:
+  id: "Mia-AiLab/GLM-5.3-Flash-EXL3-TR3-4bpw"
+  architecture: moe
+  total_params_b: 320.0
+  active_params_b: 18.0
+  moe: { num_experts: 288, experts_per_token: 8 }
+  attention:
+    type: hybrid                     # 34 KDA linear + 11 NoPE sparse-MLA (DSA)
+    kv_heads: 64
+    head_dim: 128
+    notes: "NoPE MLA (qk_rope_head_dim=0, kv_lora_rank=512); KDA state is fixed-size recurrent, not per-token KV. Unchanged from v3."
+  native_precision: bf16
+  native_context_tokens: 1048576
+  reasoning_mode: { supported: true, mechanism: think-tags }
+  builtin_speculative_weights: { present: true, kind: mtp }   # checkpoint MTP head present; the EXTERNAL DFlash2 drafter is served instead
+  license: "shapleymcg-1.0 (custom — REVIEW BEFORE REDISTRIBUTING ANYTHING DERIVED). DFlash2 drafter is separately CC-BY-NC-ND-4.0: internal eval only."
+
+quantization:
+  weights:
+    method: "EXL3/TR3 trellis, uniform-K4 4bpw, MCG codebook — ROUTED-EXPERT MLPs ONLY. Dense MLPs, attention, shared experts, routing, embeddings and lm_head stay native BF16, served as FP8 weight-only via Marlin on the dense+kda groups (GLM53_DENSE_FP8=dense,kda, unchanged from v3)."
+    producible_by_upstream_quantize: false
+    quant_repo: "brandonmusic/GLM-5.3-Flash-tr3-4bpw @ 5ab363a8 (mirrored byte-identical as Mia-AiLab/…@25a44fdb)"
+    variant: "uniform-K4; encoder reproducibility bundle shipped in the origin repo"
+    file_size_gb: 163.6
+    mixed_precision:
+      is_mixed: true
+      scheme: "EXL3 4bpw on routed-expert MLPs; BF16 everything else (dense FP8 at load, not on disk)."
+
+hardware:
+  profile_id: dual-gb10-tp2
+  device_class: nvidia-dgx-spark
+  accelerator_count: 2
+  memory_model: unified
+  memory_total_gb: 238
+  memory_bandwidth_gbs: 273
+  bound_by: memory-bandwidth
+  interconnect:
+    type: connectx-rdma
+    notes: "Dual-rail (NCCL_IB_MERGE_NICS=1 via RUIN-DELTAS §1, HCA rocep1s0f1+roceP2p1s0f1, GID 3, NCCL_CROSS_NIC=0 as reconciled to the v3 runtime by IP-314) — 196 Gb/s vs 109 single-rail."
+  os: "DGX OS (Ubuntu), Docker; driver 580.173.02 on both ranks, kernel 6.17.0-1021-nvidia"
+
+runtime:
+  engine: vllm
+  engine_version: >-
+    LOCALLY BUILT (IP-327) from the overlay at 0f49cfd (2026-09-23): local tag glm53-exl3-local:0f49cfd,
+    image id sha256:bd4d789050da, LABEL glm53.recipe.stamp=e7b9e9a866c217eb, built on <head-host> 2026-09-24
+    06:15Z with --memory=4g (the transplant set moved aside during the build; stamp computed as start.sh's
+    overlay_recipe_hash), shipped to <worker-host> by docker save|load BEFORE the window (same image id on both
+    ranks). exllamav3_ext exports glm53_fast_moe_version (thin-decode kernels compiled in). Same day-0 vLLM
+    base as v1-v3 (vllm/vllm-openai:glm53-flash-arm64-cu130 @ sha256:905c0293) and ExLlamaV3 pin c5d9c657.
+    ROLLBACK image = glm53-exl3-local:f906ee99 (v3, sha256:84213c37e0ac, stamp bdd5c0d8) on both ranks.
+    New overlay patches since v3 (image-baked unless noted): Mamba align state-free + chunk alignment
+    (patch_mamba_align_{state_free,chunking}.py, always on), decode-floor v5, compact DFlash2 slot share
+    (GLM53_DRAFT_KV_COMPACT), thin-decode MoE (GLM53_EXL3_MOE_FAST), KDA BF16 large-M (off), tool_choice
+    none (bad_words), omitted-max_tokens default, APC no-store opt-in, KV capacity log, vision caps.
+  compute_backend: { stack: cuda }
+  memory_allocator_notes: >-
+    KV pool PINNED at 13.5 GiB (--kv-cache-memory-bytes 14495514624) as in v3: 533 blocks of 27.2 MB, 240 block
+    ids per 640k request, >= 35 per running request of any length (the per-request floor sizes the pin, not tokens). Host floor gate: worst-case MemAvailable >= 3 GiB
+    on both ranks under the 3x250k stress and under the largest allowed image batch. The head sits ~3.6 GiB
+    below the worker because it also runs the vLLM API server (3.36 GiB RSS measured 2026-09-24).
+
+serving:
+  max_model_len: 640000              # v2's measured ceiling on this pair; kept.
+  max_concurrent_seqs: 12            # v1's measured knee; kept (upstream's TP2 long-coding profile runs 2 — a single-coder point, not adopted).
+  max_batched_tokens: 7168           # v3 (upstream E3 default; E3 scratch 57,344 rows).
+  kv_pool_tokens: 1421333            # MEASURED at the 13.5 GiB pin (2.22x at 640k; v3 721,183). NOT a concurrency figure: every running request holds >= 35 of the 532 usable blocks whatever its length, so 12 concurrent requests need ~420 blocks (~10.7 GiB). An 8 GiB pin (842,666 tokens, 1.32x) queued 3 of 12 streams and cost c12 -31% (arm C').
+  batching:
+    continuous: true
+    chunked_prefill: true
+    prefill_chunk_size: 1024         # GLM53_MIXED_PREFILL_CHUNK=1024 PINNED. Upstream's default moved skip -> fair on 2026-09-15; our pin keeps the v3-measured mode (the FAIR_* knobs are inert). The Mamba chunk-alignment fix is image-baked and applies in this mode.
+    long_prefill_token_threshold: 1024
+  prefix_caching: { enabled: true, notes: "hybrid prefix-hit patch, 3584-token Mamba/MLA pages. MEASURED: a 28.7k prefix + new 60-word tail reuses 28,672 tokens (all 8 pages; v3 25,088 = 7) and answers in 0.43 s (v3 3.93 s). The fix is the Mamba chunk alignment + compact drafter pages. --enable-prompt-tokens-details stays on." }
+
+speculative:
+  enabled: true
+  method: dflash
+  num_speculative_tokens: 7
+  draft_model: "incoai/GLM-5.3-Flash-DFlash2 @ 7d74cdd881ed7e32c31175984a67823127b66cfe (sha256 8931dc52…) — PINNED via DFLASH_REVISION (unchanged from v3; upstream's dc77ff1c lost our IP-310 A/B)"
+  adaptive_verification: "GLM53_ADAPTIVE_K=ema, set 2,4,7, margin 2.0 via the runtime file ~/.cache/vllm-glm53-flash/glm53_adaptive_k.json (unchanged from v3; asserted by the boot script)."
+  notes: >-
+    GLM53_DRAFT_KV_COMPACT=1: the drafter's padded slot-share block becomes the largest 64-multiple divisor of
+    the MLA block that fits its page (896 tokens against the 3,584 MLA block at TP2), so drafter prefix lookup ends
+    exactly on the Mamba block. MEASURED: the drafter group becomes a 2,048-token sliding window in 896-token blocks
+    (20 block ids per 640k request), which is where the doubled token capacity comes from. Acceptance unchanged
+    (structured 0.956, 6.69 accepted per step on A and B).
+
+generation:
+  locked_by_recipe: false
+  streaming: true
+  chat_template:
+    source: custom
+    path_or_note: >-
+      The overlay template, byte-identical f906ee99 -> 0f49cfd (sha256 7a5a0dda1331a7c4…), served via
+      --chat-template. Pre-flight 2026-09-24: six render cases identical to v3's (multi-turn, system, thinking
+      off, thinking low/high, tool call + result).
+  deliberation_tiers:
+    mechanism: "chat_template_kwargs: enable_thinking|thinking (bool, OR'd) + reasoning_effort (low|high|max, soft)"
+    default_kwargs_flag: "NOT SET at the engine; every gateway tier nests its own kwargs (CR-287). GLM53_DEFAULT_REASONING_EFFORT stays empty."
+    footgun: "NEVER send the top-level OpenAI `reasoning_effort` field. Do not vary reasoning_effort mid-conversation (full re-prefill)."
+  defaults_changed_vs_v3: >-
+    DEFAULT_MAX_NEW_TOKENS=65536 applies only when a request omits max_tokens (v3: remaining context on chat,
+    16 on legacy /v1/completions); explicit limits win. tool_choice "none" is now enforced at decode (the
+    <tool_call> opener joins bad_words when tools are declared); upstream's reason: the model opened a tool call
+    under "none" and the answer step came back empty.
+
+capabilities:
+  modalities_in: [text, image, video]   # LIMIT_MM image 8 / video 1 (v3: image 100, uncapped tokens) — see known_issues
+  modalities_out: [text]
+  tool_calling: true                 # --tool-call-parser glm47 --enable-auto-tool-choice; tool_choice "none" enforced at decode
+  reasoning: true                    # --reasoning-parser glm45
+  censorship: abliterated            # ABLIT=1 transplant, dealign donor, L15-45; fingerprint identical to v3 (30 layers, rel_l2 per layer)
+  notes: >-
+    start.sh @ 0f49cfd resets ABLIT=0 after sourcing .env; only a CALLER export of ABLIT=1 ABLIT_METHOD=transplant
+    applies the transplant (RUIN-DELTAS §6). A boot without the export serves the stock checkpoint under the
+    uncensored name — check the 32 `ablit: transplanted` lines in the head log. Refusal probe: 8/8 (a first draw
+    gave 7/8 on a borderline redirect, as on v3 — vLLM T=0 is not byte-stable). EOS IS THREE TOKEN IDS.
+
+launch:
+  env:
+    IMAGE: "glm53-exl3-local:0f49cfd"
+    PORT: "8000 (the IP-327 arms ran on 8001 so :8000 refused and the gateway fell back)"
+    GLM53_EXL3_MOE_FAST: "1 (thin-decode routed-expert kernels; needs the local build)"
+    GLM53_DRAFT_KV_COMPACT: "1"
+    GLM53_SPINWAIT_MS: "16"
+    GLM53_KDA_BF16_LARGE_M: "0 (arm C' measured +8.8/+9.6/+9.9% prefill at 12k/159k/470k and KL 0.0062 vs BF16 = v3's 0.0061, but +3.29 GiB/rank; an 8 GiB pin to fund it cost c12 -31%)"
+    EXL3_FAT_KERNEL: "1"
+    EXL3_FAT_GROUPED: "1"
+    EXL3_TEMP_ROWS_FUSED: "128 (>= MAX_NUM_SEQS x (DFLASH_TOKENS+1) = 96)"
+    GLM53_INDEXER_WORKSPACE: "rightsize"
+    GLM53_MIXED_PREFILL_CHUNK: "1024 (pinned; upstream default is now fair)"
+    LONG_PREFILL_TOKEN_THRESHOLD: "1024"
+    GLM53_ADAPTIVE_K: "ema, set 2,4,7, margin 2.0 via the runtime file"
+    GLM53_DENSE_FP8: "dense,kda"
+    DFLASH_REVISION: "7d74cdd881ed7e32c31175984a67823127b66cfe"
+    MAX_MODEL_LEN: "640000"
+    MAX_NUM_SEQS: "12"
+    MAX_NUM_BATCHED_TOKENS: "7168"
+    GPU_MEM_UTIL: "0.845"
+    EXTRA_ARGS: "--enable-prompt-tokens-details --kv-cache-memory-bytes 14495514624 --cudagraph-capture-sizes 1 2 3 4 5 6 8 9 10 12 15 16 20 24 32 40 48 64 80 96"
+    LIMIT_MM: '{"image":8,"video":1}'
+    MM_IMAGE_TOKENS: "2048 (upstream; a 1080p image = 2,040 tokens)"
+    MM_PROCESSOR_CACHE_GB: "1 (upstream; vLLM default 4)"
+    DEFAULT_MAX_NEW_TOKENS: "65536 (upstream; omitted max_tokens only)"
+    LOAD_FORMAT: "empty = vLLM auto (not InstantTensor — IP-314 floor)"
+    GLM53_EXPOSE_CACHE_RESET: "0"
+    ABLIT: "EXPORTED by the boot command: ABLIT=1 ABLIT_METHOD=transplant (ABLIT_DIRECTION=dealign, ABLIT_LAYERS=15-45, ABLIT_INCLUDE_MTP=1 from .env)"
+    NCCL: "NCCL_IB_HCA=rocep1s0f1,roceP2p1s0f1 NCCL_IB_MERGE_NICS=1 NCCL_CROSS_NIC=0 NCCL_IB_GID_INDEX=3 (dual-rail)"
+  command: >-
+    From <head-host> ~/glm53-exl3-overlay-0f49cfd (= models/runtimes/dual-spark-cluster/glm53-flash-exl3/miaai-overlay
+    @ 0f49cfd + the launch.env values as .env + the transplant set hardlinked): `~/ip327/boot_arm.sh <label>
+    ~/glm53-exl3-overlay-0f49cfd 8000 0`, which drains, runs ~/safe-takedown.sh --peer <worker-host>, then
+    `PORT=8000 ABLIT=1 ABLIT_METHOD=transplant GLM53_KDA_BF16_LARGE_M=0 SKIP_PULL=1 SKIP_BUILD=1 SKIP_SHIP=1
+    SKIP_DOWNLOAD=1 SKIP_SYNC=1 ./start.sh start`, and fails the boot on an incomplete warm-up or a missing
+    transplant. Never the overlay's stop/restart (docker rm -f). Ship a rebuilt image before a takedown, never
+    during a boot. The boot, verify and benchmark scripts are versioned in
+    models/runtimes/dual-spark-cluster/glm53-flash-exl3/probes/ip327/ (install <head-host>/ to ~/ip327/).
+  startup_seconds: 645               # MEASURED on the final boot (launch 09:39:25Z -> ready 09:50:10Z): weight load ~313-325 s + FP8 repack + 20 piecewise + 26 full + 26 DFlash2 graphs + 59-64 s warm-up (24 requests)
+  healthcheck: "curl -sf http://<head>:8000/v1/models — NECESSARY AND INSUFFICIENT. Also require: 32 transplant lines in the head log, `boot-shape-warmup: 24/24`, the IP-327 verify_boot.sh env check on BOTH containers, a refusal probe, and a real greedy completion checked for content."
+
+known_issues:
+  - issue: >-
+      Image count is memory-bound on the head rank. Each 1080p image (2,040 tokens at MM_IMAGE_TOKENS=2048)
+      costs ~180-210 MiB of transient host memory while its request is processed; 8 images x3 left the head
+      at 3.29 GiB, 12 projected under 3 GiB. The cap counts EVERY image in the conversation, including history,
+      so a long screenshot session gets HTTP 400 at image 9. v3's cap of 100 (uncapped tokens) is exposed to
+      upstream's 2026-09-14 OOM (33 frames posted as images -> Worker_TP killed).
+    severity: major
+    workaround: "Raise only with a measured trade: MM_IMAGE_TOKENS 1024 roughly halves the per-image cost (less fine detail); a lower KV pin frees ~1 GiB per 37 blocks but each running request holds >= 35. The video path (1 video, VIDEO_NUM_FRAMES default 32) is unmeasured here — the same per-frame cost applies."
+  - issue: "Every running request holds >= 35 KV blocks (~0.9 GiB of pool) whatever its length; the token-capacity figure (2.22x) is per 640k request and says nothing about concurrency."
+    severity: major
+    workaround: "Size the pin for MAX_NUM_SEQS x 35 blocks plus long-context headroom; 13.5 GiB (532 usable) is measured good for 12 sequences and the 3x250k stress."
+  - issue: "start.sh @ 0f49cfd forces ABLIT=0 after .env (upstream safety default)."
+    severity: major
+    workaround: "Export ABLIT=1 ABLIT_METHOD=transplant in the boot command; verify the 32 transplant lines."
+  - issue: "Thinking-off long-form is repaired, not cured: 3/4 stories usable (one looped to the cap, as on v3). LCB thinking-off 2/3 inside 16k."
+    severity: minor
+    workaround: "Route long-form and code to thinking-on tiers (CR-287 posture)."
+  - issue: "Third-party overlay moving fast (240 commits in 12 days); re-vendor deliberately."
+    severity: major
+    workaround: "Pin by image id + recipe stamp + overlay SHA; keep the v3 image (f906ee99) on both ranks as rollback."
+  - issue: "Upstream's teardown force-removes live GPU containers (wedges GB10)."
+    severity: major
+    workaround: "~/safe-takedown.sh --peer <worker-host> only."
+
+results_refs:
+  - glm53-flash-exl3-tr3-4bpw__dual-gb10-tp2__vllm-miaai-overlay__v5__20260924__ip327-upstream-optins
+
+notes: >-
+  IP-327 (2026-09-24): arm A = v3 re-booted as a same-day control; arm B = this configuration with image cap 48
+  (all speed and correctness gates PASS; vision measured safe to 8); arm C' = B + KDA BF16 large-M + 8 GiB pin
+  (rejected on c12). The final boot on :8000 is B with LIMIT_MM image 8. v4 = IP-314's rejected candidate.
+  Rollback = v3: ~/safe-takedown.sh --peer <worker-host>, then boot ~/glm53-exl3-overlay-f906ee99 on :8000.
